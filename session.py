@@ -1,7 +1,3 @@
-'''
-@author: Manuel Mejia
-'''
-
 import pickle
 import hmac
 import uuid
@@ -13,6 +9,7 @@ class SessionData(dict):
         self.session_id = session_id
         self.hmac_key = hmac_key
     
+#只需实例化一次，用于建立连接
 class Session(SessionData):
     def __init__(self, session_manager, request_handler):
         self.session_manager = session_manager
@@ -28,9 +25,11 @@ class Session(SessionData):
         self.session_id = current_session.session_id
         self.hmac_key = current_session.hmac_key
     
+    # TODO
     def save(self):
         self.session_manager.set(self.request_handler, self)
         
+#全局实例化一次，与memcached直接进行交互
 class SessionManager(object):
     def __init__(self, secret, memcached_address, session_timeout):
         self.secret = secret
