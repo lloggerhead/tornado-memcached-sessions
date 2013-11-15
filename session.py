@@ -4,94 +4,79 @@ import uuid
 import hashlib
 import memcache
 
-class SessionData(dict):
-    def __init__(self, session_id, hmac_key):
-        self.session_id = session_id
-        self.hmac_key = hmac_key
-    
-#只需实例化一次，用于建立连接
-class Session(SessionData):
-    def __init__(self, session_manager, request_handler):
-        self.session_manager = session_manager
+class Session(dict):
+    _registered = False
+
+    @classmethod
+    def register(cls, secret, memcached_address=["127.0.0.1:11211"], expires_days=7):
+        cls.secret = secret
+        cls.memcached_address = memcached_address
+        cls.expires_days = expires_days
+        cls._registered = True
+
+    def __init__(self, request_handler):
+        if not Session._registered:
+            raise SessionNotRegisterException()
         self.request_handler = request_handler
-        
-        try:
-            current_session = session_manager.get(request_handler)
-        except InvalidSessionException:
-            current_session = session_manager.get()
-            
-        for key, data in current_session.iteritems():
-            self[key] = data
-        self.session_id = current_session.session_id
-        self.hmac_key = current_session.hmac_key
-    
-    # TODO
+        self.ssid = request_handler.get_secure_cookie("ssid")
+        self.verf = request_handler.get_secure_cookie("verf")
+        self._check_ssid()
+        self.load()
+
+    # read datas from memcached server
+    def load(self):
+        mc = memcache.Client(Session.memcached_address)
+        self._check_memclient(mc)
+        data = mc.get(self.ssid)
+        if data:
+            data = pickle.loads(data)
+        else:
+            data = dict()
+        for key, value in data.items():
+            self[key] = value
+
+    # save datas to memcached server
     def save(self):
-        self.session_manager.set(self.request_handler, self)
-        
-#全局实例化一次，与memcached直接进行交互
-class SessionManager(object):
-    def __init__(self, secret, memcached_address, session_timeout):
-        self.secret = secret
-        self.memcached_address = memcached_address
-        self.session_timeout = session_timeout
-        
-    def _fetch(self, session_id):
-        try:
-            mc = memcache.Client(self.memcached_address, debug=0)
-            session_data = raw_data = mc.get(session_id)
-            if raw_data != None:
-                mc.replace(session_id, raw_data, self.session_timeout, 0)
-                session_data = pickle.loads(raw_data)
-            if type(session_data) == type({}):
-                return session_data
-            else:
-                return {}
-        except IOError:
-            return {}
-        
-    def get(self, request_handler = None):
-        
-        if (request_handler == None):
-            session_id = None
-            hmac_key = None
-        else:
-            session_id = request_handler.get_secure_cookie("session_id")
-            hmac_key = request_handler.get_secure_cookie("verification")
-        
-        if session_id == None:
-            session_exists = False
-            session_id = self._generate_id()
-            hmac_key = self._generate_hmac(session_id)
-        else:
-            session_exists = True
-            
-        check_hmac = self._generate_hmac(session_id)
-        if hmac_key != check_hmac:
+        # Don't need other attribute
+        data = dict(self.items())
+        data = pickle.dumps(data, pickle.HIGHEST_PROTOCOL)
+        timeout = Session.expires_days * 24 * 60 * 60
+        mc = memcache.Client(Session.memcached_address)
+        self._check_memclient(mc)
+        mc.set(self.ssid, data, timeout)
+
+    def clear(self):
+        super(Session, self).clear()
+        self.memclient.delete(self.ssid)
+        self.request_handler.clear_cookie("ssid")
+        self.request_handler.clear_cookie("verf")
+
+    def _generate_ssid(self):
+        return hashlib.sha256(Session.secret + str(uuid.uuid4())).hexdigest()
+
+    def _generate_verf(self, ssid):
+        return hmac.new(ssid, Session.secret, hashlib.sha256).hexdigest()
+
+    def _check_ssid(self):
+        if not (self.ssid and self.verf):
+            self.ssid = self._generate_ssid()
+            self.verf = self._generate_verf(self.ssid)
+            self.request_handler.set_secure_cookie("ssid", self.ssid, self.expires_days)
+            self.request_handler.set_secure_cookie("verf", self.verf, self.expires_days)
+        elif self.verf != self._generate_verf(self.ssid):
+            self.request_handler.clear_cookie("ssid")
+            self.request_handler.clear_cookie("verf")
             raise InvalidSessionException()
-        
-        session = SessionData(session_id, hmac_key)
-        
-        if session_exists:
-            session_data = self._fetch(session_id)
-            for key, data in session_data.iteritems():
-                session[key] = data
-                
-        return session
-    
-    def set(self, request_handler, session):
-        request_handler.set_secure_cookie("session_id", session.session_id)
-        request_handler.set_secure_cookie("verification", session.hmac_key)
-        session_data = pickle.dumps(dict(session.items()), pickle.HIGHEST_PROTOCOL)
-        mc = memcache.Client(self.memcached_address, debug=0)
-        mc.set(session.session_id, session_data, self.session_timeout, 0)
-        
-    def _generate_id(self):
-        new_id = hashlib.sha256(self.secret + str(uuid.uuid4()))
-        return new_id.hexdigest()
-    
-    def _generate_hmac(self, session_id):
-        return hmac.new(session_id, self.secret, hashlib.sha256).hexdigest()
+
+    def _check_memclient(self, mc):
+        if not mc.get_stats():
+            raise ConnectMemcachedServerException()
+
+class SessionNotRegisterException(Exception):
+    pass
 
 class InvalidSessionException(Exception):
+    pass
+
+class ConnectMemcachedServerException(Exception):
     pass

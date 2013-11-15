@@ -1,5 +1,8 @@
-A Python implementation of sessions with Tornado web server and memcached.
+Session for Tornado web server.  
 
-#依赖#  
-[memcached](http://memcached.org/)
-python-memcache
+#Usage  
+Just like dict, see demo.  
+
+#dependency  
+[memcached](http://memcached.org/)  
+python-memcache  
