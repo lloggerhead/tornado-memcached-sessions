@@ -7,6 +7,13 @@ import memcache
 class Session(dict):
     _registered = False
 
+    class SessionNotRegisterException(Exception):
+        pass
+    class InvalidSessionException(Exception):
+        pass
+    class ConnectMemcachedServerException(Exception):
+        pass
+    
     @classmethod
     def register(cls, secret, memcached_address=["127.0.0.1:11211"], expires_days=7):
         cls.secret = secret
@@ -70,12 +77,3 @@ class Session(dict):
     def _check_memclient(self, mc):
         if not mc.get_stats():
             raise ConnectMemcachedServerException()
-
-class SessionNotRegisterException(Exception):
-    pass
-
-class InvalidSessionException(Exception):
-    pass
-
-class ConnectMemcachedServerException(Exception):
-    pass
