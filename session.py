@@ -47,7 +47,6 @@ class Session(dict):
 
     def clear(self):
         super(Session, self).clear()
-        self.memclient.delete(self.ssid)
         self.request_handler.clear_cookie("ssid")
         self.request_handler.clear_cookie("verf")
 
