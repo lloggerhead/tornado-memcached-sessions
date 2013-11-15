@@ -1,2 +1,0 @@
-Just a Python implementation of sessions with Tornado web server and memcached.
-Using python-memcached for the memcached client.
